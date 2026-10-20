@@ -443,7 +443,7 @@ final class ShelfView: NSVisualEffectView {
         guard let shelf else { return }
         let urls = shelf.urls
 
-        let heading = NSMutableAttributedString(string: urls.isEmpty ? "Dropoverr" : urls.count == 1 ? "1 item" : "\(urls.count) items",
+        let heading = NSMutableAttributedString(string: urls.isEmpty ? "Dropovr" : urls.count == 1 ? "1 item" : "\(urls.count) items",
                                                 attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold),
                                                              .foregroundColor: Style.text])
         let bytes = urls.compactMap(fileSize).reduce(0, +)
@@ -503,7 +503,7 @@ final class ShelfView: NSVisualEffectView {
                 if let link {
                     overlay.show(link)
                     self?.phoneButton.isActive = true
-                    print("Dropoverr phone link:", link.absoluteString)
+                    print("Dropovr phone link:", link.absoluteString)
                     fflush(stdout)
                 }
                 else { overlay.showError("Connect your Mac to Wi‑Fi, then try again.") }

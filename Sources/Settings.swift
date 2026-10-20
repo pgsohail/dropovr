@@ -4,7 +4,7 @@ import AppKit
 import ServiceManagement
 import SwiftUI
 
-let repoURL = URL(string: "https://github.com/pgsohail/stash")!
+let repoURL = URL(string: "https://github.com/pgsohail/dropovr")!
 
 enum Prefs {
     private static let defaults = UserDefaults.standard
@@ -34,7 +34,7 @@ enum Prefs {
 }
 
 extension Notification.Name {
-    static let phoneLinkChanged = Notification.Name("DropoverrPhoneLinkChanged")
+    static let phoneLinkChanged = Notification.Name("DropovrPhoneLinkChanged")
 }
 
 // MARK: - Window
@@ -47,7 +47,7 @@ enum SettingsWindow {
         if window == nil {
             let host = NSHostingController(rootView: SettingsView(model: model))
             let created = NSWindow(contentViewController: host)
-            created.title = "Dropoverr Settings"
+            created.title = "Dropovr Settings"
             created.styleMask = [.titled, .closable]
             created.isReleasedWhenClosed = false
             created.center()
@@ -122,7 +122,7 @@ struct SettingsView: View {
     private var general: some View {
         Form {
             Section {
-                Toggle("Open Dropoverr at login", isOn: Binding(get: { model.openAtLogin }, set: model.setOpenAtLogin))
+                Toggle("Open Dropovr at login", isOn: Binding(get: { model.openAtLogin }, set: model.setOpenAtLogin))
                 if let loginError = model.loginError { Text(loginError).font(.caption).foregroundStyle(.red) }
             }
             Section("Opening a shelf") {
@@ -229,7 +229,7 @@ struct SettingsView: View {
     private var about: some View {
         VStack(spacing: 10) {
             Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 96, height: 96)
-            Text("Dropoverr").font(.title.bold())
+            Text("Dropovr").font(.title.bold())
             Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
                 .foregroundStyle(.secondary)
             Text("A free, open-source floating shelf for your Mac.").foregroundStyle(.secondary)

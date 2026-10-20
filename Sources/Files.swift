@@ -1,4 +1,4 @@
-// Where Dropoverr keeps things that don't already exist as files, how it reads
+// Where Dropovr keeps things that don't already exist as files, how it reads
 // whatever is dragged onto a shelf, and how it makes previews.
 
 import AppKit
@@ -9,7 +9,7 @@ let disk = FileManager.default
 
 let stashDir: URL = {
     let dir = disk.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Dropoverr", isDirectory: true)
+        .appendingPathComponent("Dropovr", isDirectory: true)
     try? disk.createDirectory(at: dir, withIntermediateDirectories: true)
     return dir
 }()

@@ -1,4 +1,4 @@
-// Draws Dropoverr's 1024px app icon: the logo on a soft white tile.
+// Draws Dropovr's 1024px app icon: the logo on a soft white tile.
 // Usage: swift make-icon.swift Resources/logo.svg out.png
 import AppKit
 

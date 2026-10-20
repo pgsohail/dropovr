@@ -108,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = Self.menuBarIcon()
-        statusItem.button?.toolTip = "Dropoverr"
+        statusItem.button?.toolTip = "Dropovr"
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
@@ -145,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     static func menuBarIcon() -> NSImage {
         let logo = Bundle.main.url(forResource: "logo", withExtension: "svg").flatMap(NSImage.init(contentsOf:))
-            ?? NSImage(systemSymbolName: "tray.and.arrow.down.fill", accessibilityDescription: "Dropoverr")!
+            ?? NSImage(systemSymbolName: "tray.and.arrow.down.fill", accessibilityDescription: "Dropovr")!
         logo.size = NSSize(width: 18, height: 18)
         logo.isTemplate = true
         return logo
@@ -172,13 +172,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // Opening Dropoverr again (from Applications, Spotlight or Raycast) pops a shelf.
+    // Opening Dropovr again (from Applications, Spotlight or Raycast) pops a shelf.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         newShelf()
         return false
     }
 
-    // Files opened with Dropoverr (Open With, or dropped on its icon) land on a shelf.
+    // Files opened with Dropovr (Open With, or dropped on its icon) land on a shelf.
     func application(_ application: NSApplication, open urls: [URL]) {
         let target = shelves.last { $0.isVisible } ?? {
             newShelf()
@@ -208,9 +208,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let settings = menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         settings.image = symbol("gearshape", size: 13, weight: .regular)
-        menu.addItem(withTitle: "How to Use Dropoverr", action: #selector(showHelp), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "How to Use Dropovr", action: #selector(showHelp), keyEquivalent: "").target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Dropoverr", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Quit Dropovr", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 
     @objc func newShelf() {
@@ -241,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.icon = NSApp.applicationIconImage
-        alert.messageText = "Dropoverr lives in your menu bar"
+        alert.messageText = "Dropovr lives in your menu bar"
         alert.informativeText = """
         Open a shelf
         • Shake the mouse while dragging anything

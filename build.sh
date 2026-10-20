@@ -1,13 +1,13 @@
 #!/bin/zsh
-# Builds Dropoverr.app into ./build. Run with --install to copy it to /Applications and open it.
+# Builds Dropovr.app into ./build. Run with --install to copy it to /Applications and open it.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP=build/Dropoverr.app
+APP=build/Dropovr.app
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" build/AppIcon.iconset
 
-swiftc -O -swift-version 5 -target arm64-apple-macos13 Sources/*.swift -o "$APP/Contents/MacOS/Dropoverr"
+swiftc -O -swift-version 5 -target arm64-apple-macos13 Sources/*.swift -o "$APP/Contents/MacOS/Dropovr"
 
 swift make-icon.swift Resources/logo.svg build/icon.png
 cp Resources/logo.svg "$APP/Contents/Resources/logo.svg"
@@ -22,10 +22,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Dropoverr</string>
-  <key>CFBundleDisplayName</key><string>Dropoverr</string>
-  <key>CFBundleIdentifier</key><string>local.dropoverr.app</string>
-  <key>CFBundleExecutable</key><string>Dropoverr</string>
+  <key>CFBundleName</key><string>Dropovr</string>
+  <key>CFBundleDisplayName</key><string>Dropovr</string>
+  <key>CFBundleIdentifier</key><string>local.dropovr.app</string>
+  <key>CFBundleExecutable</key><string>Dropovr</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>3.0</string>
@@ -40,7 +40,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>LSHandlerRank</key><string>Alternate</string>
     <key>LSItemContentTypes</key><array><string>public.item</string><string>public.folder</string></array>
   </dict></array>
-  <key>NSLocalNetworkUsageDescription</key><string>Dropoverr uses your Wi-Fi so your phone can download and send files to your shelf.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>Dropovr uses your Wi-Fi so your phone can download and send files to your shelf.</string>
 </dict>
 </plist>
 PLIST
@@ -49,9 +49,9 @@ codesign --force --deep --sign - "$APP"
 echo "Built $APP"
 
 if [[ "${1:-}" == "--install" ]]; then
-  osascript -e 'quit app "Dropoverr"' 2>/dev/null || true
-  rm -rf /Applications/Dropoverr.app
+  osascript -e 'quit app "Dropovr"' 2>/dev/null || true
+  rm -rf /Applications/Dropovr.app
   cp -R "$APP" /Applications/
-  open /Applications/Dropoverr.app
-  echo "Installed to /Applications/Dropoverr.app"
+  open /Applications/Dropovr.app
+  echo "Installed to /Applications/Dropovr.app"
 fi

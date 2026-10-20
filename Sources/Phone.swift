@@ -21,7 +21,7 @@ final class PhoneServer {
     private var listener: NWListener?
     private var token = ""
     private var waiting: [(URL?) -> Void] = []
-    private let queue = DispatchQueue(label: "dropoverr.phone", qos: .userInitiated, attributes: .concurrent)
+    private let queue = DispatchQueue(label: "dropovr.phone", qos: .userInitiated, attributes: .concurrent)
     static let fixedPort: NWEndpoint.Port = 47777
 
     /// Starts sharing (or hands back the running link). With the always-on setting, the link is
@@ -141,7 +141,7 @@ final class PhoneServer {
             headers[line[..<colon].lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         }
         let prefix = "/\(token)"
-        guard parts[1].hasPrefix(prefix), let comps = URLComponents(string: "http://stash" + parts[1].dropFirst(prefix.count)) else {
+        guard parts[1].hasPrefix(prefix), let comps = URLComponents(string: "http://dropovr" + parts[1].dropFirst(prefix.count)) else {
             return respond(connection, "404 Not Found", text: "Not found")
         }
         var query: [String: String] = [:]
@@ -165,7 +165,7 @@ final class PhoneServer {
         case ("GET", "icon.png"):
             sendIcon(connection)
         case ("GET", "manifest.json"):
-            let manifest = ##"{"name":"Dropoverr","short_name":"Dropoverr","start_url":"./","scope":"./","display":"standalone","background_color":"#0c0b14","theme_color":"#0c0b14","icons":[{"src":"icon.png","sizes":"512x512","type":"image/png"}]}"##
+            let manifest = ##"{"name":"Dropovr","short_name":"Dropovr","start_url":"./","scope":"./","display":"standalone","background_color":"#0c0b14","theme_color":"#0c0b14","icons":[{"src":"icon.png","sizes":"512x512","type":"image/png"}]}"##
             respond(connection, "200 OK", type: "application/manifest+json", body: Data(manifest.utf8))
         case ("POST", "u"):
             receiveUpload(connection, request: request, start: body)
@@ -366,9 +366,9 @@ final class PhoneServer {
     static let page = #"""
     <!doctype html><html><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-    <meta name="theme-color" content="#0c0b14"><title>Dropoverr</title>
+    <meta name="theme-color" content="#0c0b14"><title>Dropovr</title>
     <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Dropoverr"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Dropovr"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="icon.png"><link rel="icon" href="icon.png"><link rel="manifest" href="manifest.json">
     <style>
     :root{color-scheme:dark}
@@ -409,7 +409,7 @@ final class PhoneServer {
     </style></head><body>
     <header>
       <div class="logo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10m0 0 4-4m-4 4-4-4"/><path d="M3 14v3a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-3h-5a4 4 0 0 1-8 0H3z"/></svg></div>
-      <div><h1>Dropoverr</h1><div class="sub"><span class="dot" id="dot"></span><span id="sub">Connected to your Mac</span></div></div>
+      <div><h1>Dropovr</h1><div class="sub"><span class="dot" id="dot"></span><span id="sub">Connected to your Mac</span></div></div>
     </header>
     <div class="tip" id="tip" hidden><span id="tiptext"></span><button id="tipx" aria-label="Dismiss">✕</button></div>
     <div class="list" id="list"></div>
@@ -426,7 +426,7 @@ final class PhoneServer {
         $('sub').textContent=items.length?items.length+(items.length==1?' item':' items')+' on your Mac':'Connected to your Mac';
         const sig=JSON.stringify(items); if(sig===last) return; last=sig;
         $('list').innerHTML=items.length?items.map((it,i)=>`<a class="item" style="animation-delay:${i*35}ms" href="f/${it.id}" download="${esc(it.name)}"><img src="t/${it.id}" alt=""><div class="meta"><div class="name">${esc(it.name)}</div><div class="size">${esc(it.size)}</div></div><div class="get">${arrow}</div></a>`).join('')
-          :'<div class="empty"><b>Nothing here yet</b>Drop files on the Dropoverr shelf on your Mac and they’ll appear here — or send some from this phone.</div>';
+          :'<div class="empty"><b>Nothing here yet</b>Drop files on the Dropovr shelf on your Mac and they’ll appear here — or send some from this phone.</div>';
       }catch(e){$('dot').className='dot off';$('sub').textContent='Can’t reach your Mac…'}
     }
     load();setInterval(load,1500);
@@ -434,8 +434,8 @@ final class PhoneServer {
     let tipDone=false;try{tipDone=localStorage.getItem('tipDone')==='1'}catch(e){}
     if(!standalone&&!tipDone){
       $('tiptext').innerHTML=/android/i.test(navigator.userAgent)
-        ?'📲 Keep Dropoverr one tap away: tap <b>⋮</b> then <b>Add to Home screen</b>.'
-        :'📲 Keep Dropoverr one tap away: tap <b>Share</b> then <b>Add to Home Screen</b>.';
+        ?'📲 Keep Dropovr one tap away: tap <b>⋮</b> then <b>Add to Home screen</b>.'
+        :'📲 Keep Dropovr one tap away: tap <b>Share</b> then <b>Add to Home Screen</b>.';
       $('tip').hidden=false;
     }
     $('tipx').onclick=()=>{$('tip').hidden=true;try{localStorage.setItem('tipDone','1')}catch(e){}};

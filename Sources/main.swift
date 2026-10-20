@@ -1,4 +1,4 @@
-// Dropoverr — a free floating drop shelf for macOS.
+// Dropovr — a free floating drop shelf for macOS.
 
 import AppKit
 
