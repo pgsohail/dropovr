@@ -9,6 +9,9 @@ import Carbon.HIToolbox
 /// left-right while something is being dragged.
 final class ShakeDetector {
     var onShake: ((NSPoint) -> Void)?
+    /// Fired when a drag reaches the notch (or the top middle of a screen without one).
+    var onNotch: ((NSScreen) -> Void)?
+    private var lastNotch: TimeInterval = 0
 
     private var monitors: [Any] = []
     private var dragChangeCount = 0
@@ -39,6 +42,13 @@ final class ShakeDetector {
             travel = 0
             reversals.removeAll()
             return
+        }
+        let dragging = NSPasteboard(name: .drag).changeCount != dragChangeCount
+        if dragging, Prefs.notchEnabled, now - lastNotch > 1.5,
+           let screen = NSScreen.screens.first(where: { NSMouseInRect(point, $0.frame, false) }),
+           point.y >= screen.frame.maxY - 6, abs(point.x - screen.frame.midX) < 110 {
+            lastNotch = now
+            onNotch?(screen)
         }
         guard Prefs.shakeEnabled else { return }
 
@@ -73,36 +83,46 @@ final class ShakeDetector {
 
 /// A system-wide keyboard shortcut (no special permissions needed).
 final class HotKey {
-    private static var action: (() -> Void)?
+    private static var actions: [UInt32: () -> Void] = [:]
     private static var handlerInstalled = false
+    private static var nextID: UInt32 = 1
+    private let id: UInt32
     private var ref: EventHotKeyRef?
 
     init(keyCode: Int, modifiers: Int, action: @escaping () -> Void) {
-        HotKey.action = action
+        id = HotKey.nextID
+        HotKey.nextID += 1
+        HotKey.actions[id] = action
         if !HotKey.handlerInstalled {
             HotKey.handlerInstalled = true
             var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-            InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-                DispatchQueue.main.async { HotKey.action?() }
+            InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+                var pressed = EventHotKeyID()
+                GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                  nil, MemoryLayout<EventHotKeyID>.size, nil, &pressed)
+                DispatchQueue.main.async { HotKey.actions[pressed.id]?() }
                 return noErr
             }, 1, &spec, nil, nil)
         }
-        let id = EventHotKeyID(signature: OSType(0x4452_5652), id: 1)   // 'DRVR'
-        RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), id, GetApplicationEventTarget(), 0, &ref)
+        let hotKeyID = EventHotKeyID(signature: OSType(0x4452_5652), id: id)   // 'DRVR'
+        RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), hotKeyID, GetApplicationEventTarget(), 0, &ref)
     }
 
     deinit {
         if let ref { UnregisterEventHotKey(ref) }
+        HotKey.actions[id] = nil
     }
 }
 
 // MARK: - App
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private(set) var shelves: [ShelfPanel] = []
     private let shake = ShakeDetector()
     private var hotKey: HotKey?
+    private var clipboardHotKey: HotKey?
+    private let screenshots = ScreenshotWatcher()
     private var phoneSignature = ""
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -114,7 +134,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
 
         shake.onShake = { [weak self] point in self?.openShelf(at: point) }
+        shake.onNotch = { [weak self] screen in self?.openShelfFromNotch(of: screen) }
         shake.start()
+        screenshots.onNew = { [weak self] url in self?.addScreenshot(url) }
+
+        // Drop files straight onto the menu bar icon.
+        statusItem.button?.window?.registerForDraggedTypes(PasteboardReader.types)
+        statusItem.button?.window?.delegate = self
+
+        restorePinnedShelves()
+        ShelfPanel.onChange = { [weak self] in self?.savePinnedShelves() }
 
         // When the phone needs a shelf and none is attached, use the newest one (or open one).
         PhoneServer.shared.shelfProvider = { [weak self] create in
@@ -158,6 +187,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else if !Prefs.hotKeyEnabled {
             hotKey = nil
         }
+        if Prefs.clipboardHotKeyEnabled, clipboardHotKey == nil {
+            clipboardHotKey = HotKey(keyCode: kVK_ANSI_V, modifiers: controlKey | optionKey) { [weak self] in self?.clipboardToShelf() }
+        } else if !Prefs.clipboardHotKeyEnabled {
+            clipboardHotKey = nil
+        }
+        if Prefs.screenshotsEnabled { screenshots.start() } else { screenshots.stop() }
         shelves.forEach { $0.shelfView.applyDarkness() }
 
         let signature = Prefs.phoneAlwaysOn ? "on \(Prefs.phoneUseHostname) \(Prefs.phoneToken)" : "off"
@@ -193,6 +228,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         new.keyEquivalentModifierMask = [.control, .option]
         new.target = self
         new.image = symbol("plus.rectangle.on.rectangle", size: 13, weight: .regular)
+        let clip = menu.addItem(withTitle: "Clipboard to Shelf", action: #selector(clipboardToShelf),
+                                keyEquivalent: Prefs.clipboardHotKeyEnabled ? "v" : "")
+        clip.keyEquivalentModifierMask = [.control, .option]
+        clip.target = self
+        clip.image = symbol("doc.on.clipboard", size: 13, weight: .regular)
         if !shelves.isEmpty {
             let all = menu.addItem(withTitle: "Close All Shelves", action: #selector(closeAll), keyEquivalent: "")
             all.target = self
@@ -217,6 +257,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openShelf(at: NSEvent.mouseLocation)
     }
 
+    /// The newest open shelf, or a new one at `point`.
+    private func shelfForAdding(at point: NSPoint) -> ShelfPanel? {
+        if let open = shelves.last(where: { $0.isVisible }) { return open }
+        openShelf(at: point)
+        return shelves.last
+    }
+
+    private func openShelfFromNotch(of screen: NSScreen) {
+        let shelf = shelves.first(where: { $0.urls.isEmpty }) ?? {
+            let made = ShelfPanel(near: NSPoint(x: screen.frame.midX, y: screen.frame.maxY))
+            made.onClose = { [weak self] closed in self?.shelves.removeAll { $0 === closed } }
+            shelves.append(made)
+            return made
+        }()
+        shelf.presentFromNotch(of: screen)
+    }
+
+    @objc func clipboardToShelf() {
+        let point = NSEvent.mouseLocation
+        let pasteboard = NSPasteboard.general
+        guard pasteboard.pasteboardItems?.isEmpty == false else { return }
+        let shelf = shelfForAdding(at: point)
+        let ok = PasteboardReader.read(pasteboard) { [weak shelf] urls in shelf?.add(urls) }
+        shelf?.shelfView.toast(ok ? "Added from clipboard" : "Nothing to add")
+    }
+
+    private func addScreenshot(_ url: URL) {
+        guard let screen = NSScreen.main else { return }
+        let corner = NSPoint(x: screen.visibleFrame.maxX - ShelfPanel.size.width / 2, y: screen.visibleFrame.minY + ShelfPanel.size.height / 2)
+        guard let shelf = shelfForAdding(at: corner) else { return }
+        shelf.add([url])
+        shelf.shelfView.toast("Screenshot added")
+    }
+
+    // MARK: Pinned shelves
+
+    private func restorePinnedShelves() {
+        for saved in ShelfStore.load() {
+            let urls = saved.paths.map { URL(fileURLWithPath: $0) }.filter { disk.fileExists(atPath: $0.path) }
+            let shelf = ShelfPanel(near: .zero)
+            shelf.onClose = { [weak self] closed in
+                self?.shelves.removeAll { $0 === closed }
+                self?.savePinnedShelves()
+            }
+            shelves.append(shelf)
+            shelf.add(urls)
+            shelf.pinned = true
+            shelf.setFrameOrigin(NSPoint(x: saved.x, y: saved.y))
+            shelf.orderFrontRegardless()
+        }
+    }
+
+    private func savePinnedShelves() {
+        ShelfStore.save(shelves.filter { $0.isVisible || $0.urls.count > 0 })
+    }
+
+    // MARK: Dropping on the menu bar icon
+
+    @objc func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard let frame = statusItem.button?.window?.frame else { return [] }
+        let below = NSPoint(x: frame.midX, y: frame.minY - ShelfPanel.size.height / 2 - 8)
+        if shelves.last(where: { $0.isVisible }) == nil { openShelf(at: below) }
+        else { shelves.last(where: { $0.isVisible })?.present(near: below) }
+        return .copy
+    }
+
+    @objc func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
+
+    @objc func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let shelf = shelves.last(where: { $0.isVisible }) else { return false }
+        return PasteboardReader.read(sender.draggingPasteboard) { [weak shelf] urls in shelf?.add(urls) }
+    }
+
     private func openShelf(at point: NSPoint) {
         // Reuse an empty shelf instead of piling up new ones.
         if let empty = shelves.first(where: { $0.urls.isEmpty }) {
@@ -224,7 +337,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         let shelf = ShelfPanel(near: point)
-        shelf.onClose = { [weak self] closed in self?.shelves.removeAll { $0 === closed } }
+        shelf.onClose = { [weak self] closed in
+            self?.shelves.removeAll { $0 === closed }
+            self?.savePinnedShelves()
+        }
         shelves.append(shelf)
         shelf.present(near: point)
     }
@@ -245,7 +361,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.informativeText = """
         Open a shelf
         • Shake the mouse while dragging anything
-        • Press ⌃⌥S anywhere, or use the menu bar icon
+        • Drag anything to the notch (top middle of the screen)
+        • Drop files on the menu bar icon
+        • Press ⌃⌥S anywhere · ⌃⌥V puts what you copied on a shelf
+        • Take a screenshot — it lands on a shelf
 
         Fill it
         • Drop files, folders, photos, text, links — anything
@@ -255,7 +374,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         • Click the stack to browse, then drag single items
         • Space: Quick Look · ⌘C: copy · Delete: remove
         • 📱 Phone button: scan the QR code to send files to or from your phone
-        • ⋯ menu: AirDrop, ZIP, Save to Downloads and more
+        • Right-click or ⋯: Share Link, AirDrop, image tools (remove background, resize, convert), ZIP and more
+        • ⌘P pins a shelf so it stays after a restart
 
         Make it yours in Settings (⌘, from the menu bar icon).
         """

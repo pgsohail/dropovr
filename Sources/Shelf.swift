@@ -3,8 +3,18 @@
 import AppKit
 import Quartz
 
-final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegate, NSSharingServicePickerDelegate {
     static let size = NSSize(width: 260, height: 300)
+    /// Called whenever any shelf's contents, position or pin changes (used to save pinned shelves).
+    static var onChange: (() -> Void)?
+
+    /// Pinned shelves stay open when emptied and come back after a restart.
+    var pinned = false {
+        didSet {
+            shelfView.reload(animated: true)
+            Self.onChange?()
+        }
+    }
 
     private(set) var urls: [URL] = []
     private(set) var selection: Set<URL> = []
@@ -31,6 +41,9 @@ final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegat
         shelfView = ShelfView(frame: NSRect(origin: .zero, size: Self.size), shelf: self)
         contentView = shelfView
         setFrameOrigin(Self.origin(near: point))
+        NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: self, queue: .main) { _ in
+            Self.onChange?()
+        }
     }
 
     override var canBecomeKey: Bool { true }
@@ -70,6 +83,26 @@ final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegat
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
     }
 
+    /// Slides the shelf down out of the notch (or the top middle of a screen without one).
+    func presentFromNotch(of screen: NSScreen) {
+        let target = NSRect(x: screen.frame.midX - Self.size.width / 2,
+                            y: screen.visibleFrame.maxY - Self.size.height - 8,
+                            width: Self.size.width, height: Self.size.height)
+        closing = false
+        if !isVisible {
+            alphaValue = 0
+            setFrame(target.offsetBy(dx: 0, dy: 60), display: false)
+            orderFrontRegardless()
+        }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.3
+            ctx.timingFunction = Style.smooth
+            animator().alphaValue = 1
+            animator().setFrame(target, display: true)
+        }
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+    }
+
     override func close() {
         guard !closing else { return }
         closing = true
@@ -101,12 +134,13 @@ final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegat
         urls.removeAll { set.contains($0) }
         selection.subtract(set)
         set.forEach { Thumbnails.shared.forget($0) }
-        if urls.isEmpty { close() } else { changed() }
+        if urls.isEmpty && !pinned { close() } else { changed() }
     }
 
     private func changed() {
         if urls.count < 2 { expanded = false }
         shelfView.reload(animated: true)
+        Self.onChange?()
     }
 
     func setExpanded(_ value: Bool) {
@@ -151,8 +185,71 @@ final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegat
 
     @objc func share(_ sender: NSButton) {
         guard !urls.isEmpty else { return }
-        NSSharingServicePicker(items: activeURLs).show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+        let picker = NSSharingServicePicker(items: activeURLs)
+        picker.delegate = self
+        picker.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
     }
+
+    // Adds "Copy Share Link" to the system Share menu.
+    func sharingServicePicker(_ picker: NSSharingServicePicker, sharingServicesForItems items: [Any],
+                              proposedSharingServices proposed: [NSSharingService]) -> [NSSharingService] {
+        let link = NSSharingService(title: "Copy Share Link", image: symbol("link", size: 16, weight: .regular) ?? NSImage(),
+                                    alternateImage: nil) { [weak self] in self?.shareLink() }
+        return [link] + proposed
+    }
+
+    @objc func togglePin() {
+        pinned.toggle()
+        shelfView.toast(pinned ? "Pinned — stays after restart" : "Unpinned")
+    }
+
+    @objc func shareLink() {
+        let items = activeURLs
+        guard !items.isEmpty else { return }
+        shelfView.toast("Uploading…")
+        ShareLink.upload(items) { [weak self] result in
+            switch result {
+            case .success(let shared):
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(shared.link.absoluteString, forType: .string)
+                self?.shelfView.toast("Link copied · lasts \(shared.lifetime)")
+            case .failure(let error):
+                self?.shelfView.toast(error.localizedDescription)
+            }
+        }
+    }
+
+    // MARK: Image actions
+
+    private var activeImages: [URL] { activeURLs.filter(ImageTools.isImage) }
+
+    private func runImageAction(_ label: String, _ action: @escaping (URL) throws -> URL) {
+        let images = activeImages
+        guard !images.isEmpty else { return }
+        shelfView.toast("\(label)…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var made: [URL] = []
+            var failure: Error?
+            for url in images {
+                do { made.append(try action(url)) } catch { failure = error }
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.add(made)
+                if made.isEmpty, let failure { self.shelfView.toast(failure.localizedDescription) }
+                else { self.shelfView.toast(made.count == 1 ? "Done" : "Made \(made.count) images") }
+            }
+        }
+    }
+
+    @objc func resizeHalf() { runImageAction("Resizing") { try ImageTools.resize($0, percent: 50) } }
+    @objc func resize1080() { runImageAction("Resizing") { try ImageTools.resize($0, maxSide: 1080) } }
+    @objc func resize2048() { runImageAction("Resizing") { try ImageTools.resize($0, maxSide: 2048) } }
+    @objc func convertJPG() { runImageAction("Converting") { try ImageTools.convert($0, to: .jpeg) } }
+    @objc func convertPNG() { runImageAction("Converting") { try ImageTools.convert($0, to: .png) } }
+    @objc func convertHEIC() { runImageAction("Converting") { try ImageTools.convert($0, to: .heic) } }
+    @objc func compressImages() { runImageAction("Compressing") { try ImageTools.compress($0) } }
+    @objc func removeBackground() { runImageAction("Removing background") { try ImageTools.removeBackground($0) } }
 
     @objc func airDrop() {
         guard let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: activeURLs) else {
@@ -255,31 +352,60 @@ final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegat
     }
 
     @objc func showMore(_ sender: NSButton) {
+        buildMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 6), in: sender)
+    }
+
+    /// The shelf's full menu: the ⋯ button and right-click both show this.
+    func buildMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let has = !urls.isEmpty
-        func add(_ title: String, _ icon: String, _ action: Selector, key: String = "", enabled: Bool = true) {
-            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
+        @discardableResult
+        func add(_ title: String, _ icon: String, _ action: Selector, key: String = "", enabled: Bool = true,
+                 to target: NSMenu? = nil) -> NSMenuItem {
+            let item = (target ?? menu).addItem(withTitle: title, action: action, keyEquivalent: key)
             item.target = self
             item.image = symbol(icon, size: 13, weight: .regular)
             item.isEnabled = enabled
+            return item
         }
         let scope = selection.isEmpty ? "" : " Selected"
         add("Quick Look", "eye", #selector(showQuickLook), key: " ", enabled: has)
         add("Copy\(scope)", "doc.on.doc", #selector(copyItems), key: "c", enabled: has)
+        menu.addItem(.separator())
+        add("Copy Share Link", "link", #selector(shareLink), enabled: has)
         add("AirDrop…", "dot.radiowaves.left.and.right", #selector(airDrop), enabled: has)
         add("Send to Phone…", "iphone", #selector(togglePhone))
+
+        let images = NSMenu()
+        images.autoenablesItems = false
+        let imageItem = menu.addItem(withTitle: "Image", action: nil, keyEquivalent: "")
+        imageItem.image = symbol("photo", size: 13, weight: .regular)
+        imageItem.submenu = images
+        imageItem.isEnabled = !activeImages.isEmpty
+        add("Remove Background", "person.crop.rectangle", #selector(removeBackground), to: images)
+        images.addItem(.separator())
+        add("Resize to 50%", "arrow.down.right.and.arrow.up.left", #selector(resizeHalf), to: images)
+        add("Resize to 1080 px", "rectangle.compress.vertical", #selector(resize1080), to: images)
+        add("Resize to 2048 px", "rectangle.expand.vertical", #selector(resize2048), to: images)
+        images.addItem(.separator())
+        add("Convert to JPG", "photo", #selector(convertJPG), to: images)
+        add("Convert to PNG", "photo", #selector(convertPNG), to: images)
+        add("Convert to HEIC", "photo", #selector(convertHEIC), to: images)
+        add("Compress", "arrow.down.doc", #selector(compressImages), to: images)
+
         menu.addItem(.separator())
         add("Compress to ZIP", "doc.zipper", #selector(compress), enabled: has)
         add("Save to Downloads", "arrow.down.circle", #selector(saveToDownloads), enabled: has)
         add("Show in Finder", "folder", #selector(revealInFinder), enabled: has)
         menu.addItem(.separator())
+        add(pinned ? "Unpin Shelf" : "Pin Shelf", pinned ? "pin.slash" : "pin", #selector(togglePin), key: "p")
         if !selection.isEmpty { add("Remove Selected", "minus.circle", #selector(removeSelected)) }
         add("Clear Shelf", "trash", #selector(clearAll), enabled: has)
         add("Close Shelf", "xmark", #selector(closeShelf), key: "w")
         menu.addItem(.separator())
         add("Settings…", "gearshape", #selector(openSettings), key: ",")
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 6), in: sender)
+        return menu
     }
 
     // MARK: Keyboard
@@ -292,6 +418,7 @@ final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegat
         case (0, true): selectAll()                         // ⌘A
         case (8, true): copyItems()                         // ⌘C
         case (13, true): close()                            // ⌘W
+        case (35, true): togglePin()                        // ⌘P
         default: super.keyDown(with: event)
         }
     }
@@ -443,9 +570,16 @@ final class ShelfView: NSVisualEffectView {
         guard let shelf else { return }
         let urls = shelf.urls
 
-        let heading = NSMutableAttributedString(string: urls.isEmpty ? "Dropovr" : urls.count == 1 ? "1 item" : "\(urls.count) items",
-                                                attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-                                                             .foregroundColor: Style.text])
+        let heading = NSMutableAttributedString()
+        if shelf.pinned, let pin = symbol("pin.fill", size: 10, weight: .bold, color: Style.accent) {
+            let attachment = NSTextAttachment()
+            attachment.image = pin
+            heading.append(NSAttributedString(attachment: attachment))
+            heading.append(NSAttributedString(string: " "))
+        }
+        heading.append(NSAttributedString(string: urls.isEmpty ? "Dropovr" : urls.count == 1 ? "1 item" : "\(urls.count) items",
+                                          attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+                                                       .foregroundColor: Style.text]))
         let bytes = urls.compactMap(fileSize).reduce(0, +)
         if bytes > 0 {
             heading.append(NSAttributedString(string: "  \(formatSize(bytes))", attributes: [

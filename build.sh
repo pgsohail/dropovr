@@ -7,7 +7,11 @@ APP=build/Dropovr.app
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" build/AppIcon.iconset
 
-swiftc -O -swift-version 5 -target arm64-apple-macos13 Sources/*.swift -o "$APP/Contents/MacOS/Dropovr"
+# One app that runs natively on both Apple Silicon and Intel Macs.
+for arch in arm64 x86_64; do
+  swiftc -O -swift-version 5 -target $arch-apple-macos13 Sources/*.swift -o build/Dropovr-$arch
+done
+lipo -create build/Dropovr-arm64 build/Dropovr-x86_64 -output "$APP/Contents/MacOS/Dropovr"
 
 swift make-icon.swift Resources/logo.svg build/icon.png
 cp Resources/logo.svg "$APP/Contents/Resources/logo.svg"
@@ -28,7 +32,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>Dropovr</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>3.0</string>
+  <key>CFBundleShortVersionString</key><string>1.0.0</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSUIElement</key><true/>

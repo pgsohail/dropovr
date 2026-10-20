@@ -17,6 +17,10 @@ enum Prefs {
     static var removeAfterDrag: Int { defaults.object(forKey: "removeAfterDrag") as? Int ?? 0 }
     static var darkness: Double { defaults.object(forKey: "darkness") as? Double ?? 0.86 }
     static var phoneAlwaysOn: Bool { defaults.bool(forKey: "phoneAlwaysOn") }
+    static var clipboardHotKeyEnabled: Bool { defaults.object(forKey: "clipboardHotKeyEnabled") as? Bool ?? true }
+    static var notchEnabled: Bool { defaults.object(forKey: "notchEnabled") as? Bool ?? true }
+    static var screenshotsEnabled: Bool { defaults.object(forKey: "screenshotsEnabled") as? Bool ?? true }
+
     static var phoneUseHostname: Bool { defaults.object(forKey: "phoneUseHostname") as? Bool ?? true }
 
     /// The secret part of the always-on phone link. Stays the same until reset.
@@ -102,6 +106,10 @@ struct SettingsView: View {
     @AppStorage("shakeEnabled") private var shakeEnabled = true
     @AppStorage("shakeSensitivity") private var shakeSensitivity = 1
     @AppStorage("hotKeyEnabled") private var hotKeyEnabled = true
+    @AppStorage("clipboardHotKeyEnabled") private var clipboardHotKeyEnabled = true
+    @AppStorage("notchEnabled") private var notchEnabled = true
+    @AppStorage("screenshotsEnabled") private var screenshotsEnabled = true
+
     @AppStorage("removeAfterDrag") private var removeAfterDrag = 0
     @AppStorage("darkness") private var darkness = 0.86
     @AppStorage("phoneAlwaysOn") private var phoneAlwaysOn = false
@@ -116,7 +124,7 @@ struct SettingsView: View {
             about.tabItem { Label("About", systemImage: "info.circle") }.tag(Tab.about)
         }
         .padding(.top, 8)
-        .frame(width: 480, height: 470)
+        .frame(width: 480, height: 540)
     }
 
     private var general: some View {
@@ -134,7 +142,12 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .disabled(!shakeEnabled)
+                Toggle("Drag to the notch (top middle of the screen)", isOn: $notchEnabled)
                 Toggle("Keyboard shortcut ⌃⌥S", isOn: $hotKeyEnabled)
+            }
+            Section("Automatic") {
+                Toggle("Put new screenshots on a shelf", isOn: $screenshotsEnabled)
+                Toggle("⌃⌥V puts what you copied on a shelf", isOn: $clipboardHotKeyEnabled)
             }
         }
         .formStyle(.grouped)
@@ -148,6 +161,14 @@ struct SettingsView: View {
                     Text("Always remove it").tag(1)
                 }
                 .pickerStyle(.radioGroup)
+            }
+            Section {
+                LabeledContent("Copy Share Link") { Text("Links expire on their own").foregroundStyle(.secondary) }
+            } header: {
+                Text("Share links")
+            } footer: {
+                Text("“Copy Share Link” uploads the file to a free temporary host: Litterbox (ad-free, 1 day, up to 1 GB), or tmpfiles.org (1 hour, up to 100 MB; its download page shows its own ads) if Litterbox is busy. Anyone with the link can download it until it expires. Nothing is uploaded unless you choose it.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Look") {
                 LabeledContent("Glass darkness") {
@@ -235,7 +256,7 @@ struct SettingsView: View {
             Text("A free, open-source floating shelf for your Mac.").foregroundStyle(.secondary)
             Link("View on GitHub", destination: repoURL)
             Spacer().frame(height: 6)
-            Text("Shortcuts: ⌃⌥S new shelf · Space Quick Look · ⌘C copy · Delete remove · Esc close")
+            Text("⌃⌥S new shelf · ⌃⌥V clipboard to shelf · Space Quick Look · ⌘P pin · Esc close")
                 .font(.caption).foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

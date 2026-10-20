@@ -33,9 +33,19 @@ they need to go, and drag them out.
 Shelf apps are usually paid or subscription-based. Dropovr is a clean, community-made alternative:
 
 - **Free forever.** Every feature is included. There's no "Pro" version, trial or paywall.
-- **No ads, no tracking, no analytics.** Dropovr never contacts the internet. The optional phone feature talks only to devices on your own Wi‑Fi.
+- **No ads, no tracking, no analytics.** Dropovr never contacts the internet on its own. The phone feature only talks to devices on your own Wi‑Fi, and nothing is uploaded unless you choose **Copy Share Link**.
 - **No account.** Install it and use it.
 - **Open source (MIT).** Read every line, build it yourself, change it and share it.
+
+## Download
+
+**[⬇︎ Download the latest Dropovr (.dmg)](https://github.com/pgsohail/dropovr/releases/latest)**: one app for Apple Silicon and Intel Macs, macOS 13 or later.
+
+1. Open the DMG and drag **Dropovr** into **Applications**.
+2. The first time you open it, macOS says it "can't verify" Dropovr. This is because it's a free community app that isn't notarised through Apple's paid developer program. Click **Done**, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. You only need to do this once.
+3. Dropovr's icon appears in your menu bar.
+
+Prefer to build it yourself? See [Build from source](#build-from-source).
 
 ## Features
 
@@ -46,14 +56,21 @@ Shelf apps are usually paid or subscription-based. Dropovr is a clean, community
 - **Send to your phone.** Scan a QR code with any iPhone or Android phone on the same Wi‑Fi to download shelf items or send files back to the Mac. No app or account needed.
 - **AirDrop and Share.** Send items straight from the shelf.
 - **Handy actions.** Quick Look, copy, compress to ZIP, save to Downloads and show in Finder.
+- **Pinned shelves.** Press <kbd>⌘</kbd> <kbd>P</kbd> on a shelf to keep it as a permanent workspace. It's still there after a restart.
+- **Drag to the notch.** Drag anything to the top middle of the screen (the notch on newer MacBooks) and a shelf slides down.
+- **Drop on the menu bar icon.** Opens a shelf right under it.
+- **Screenshots land on a shelf.** Take a screenshot and it's ready to drag into a chat or email.
+- **Clipboard to shelf.** Press <kbd>⌃</kbd> <kbd>⌥</kbd> <kbd>V</kbd> to put whatever you copied (text, images, files) on a shelf.
+- **Image tools.** Right-click images to remove the background, resize (50%, 1080 px, 2048 px), convert to JPG, PNG or HEIC, or compress.
+- **Share links.** **Copy Share Link** uploads a file and copies a download link that expires on its own. See [Privacy](#privacy).
 - **Multiple shelves.** Open as many as you like. Each one floats on every Space and over full-screen apps.
 - **Always-on phone link.** Turn it on in Settings and add Dropovr to your iPhone or Android Home Screen. It opens like an app whenever your Mac is awake and on the same Wi‑Fi.
 - **Settings.** Shake sensitivity, the <kbd>⌃</kbd><kbd>⌥</kbd><kbd>S</kbd> shortcut, glass darkness, what happens after you drag items out, and open at login.
 - **Native and light.** Pure Swift and AppKit, with no Electron, no tracking and no network access except the phone feature you turn on.
 
-## Install
+## Build from source
 
-Dropovr is built from source. It takes about a minute and needs Apple's free command-line tools.
+It takes about a minute and needs Apple's free command-line tools.
 
 ```bash
 xcode-select --install          # skip if you already have them
@@ -63,8 +80,8 @@ cd stash
 ```
 
 This builds `Dropovr.app`, copies it to `/Applications` and opens it. Its icon appears in your
-menu bar. Because the app is built on your own Mac, macOS doesn't show the "unidentified developer"
-warning.
+menu bar. Because the app is built on your own Mac, macOS doesn't show the "can't verify" warning.
+To make a DMG like the one on the Releases page, run `./release.sh`.
 
 To make Dropovr start when you log in, open **Settings** (menu bar icon → Settings…, or <kbd>⌘</kbd> <kbd>,</kbd>) → **Open Dropovr at login**.
 
@@ -81,6 +98,9 @@ To make Dropovr start when you log in, open **Settings** (menu bar icon → Sett
 | Click the stack | Browse items in a grid |
 | <kbd>Space</kbd> | Quick Look |
 | <kbd>⌘</kbd> <kbd>C</kbd> | Copy items |
+| <kbd>⌘</kbd> <kbd>P</kbd> | Pin or unpin the shelf |
+| <kbd>⌃</kbd> <kbd>⌥</kbd> <kbd>V</kbd> anywhere | Put what you copied on a shelf |
+| Right-click an item | Share link, AirDrop, image tools, ZIP and more |
 | <kbd>⌘</kbd> <kbd>A</kbd> | Select all |
 | <kbd>Delete</kbd> | Remove selected items from the shelf (the files themselves stay put) |
 | <kbd>Esc</kbd> | Go back, or close the shelf |
@@ -106,6 +126,13 @@ The phone and Mac must be on the same Wi‑Fi. Dropovr runs a small private web 
 sharing is on. Each session gets a new random link, so only someone who scans your code can connect.
 Folders download as ZIP files. The first time, macOS may ask to let Dropovr use the local network.
 
+## Privacy
+
+- Dropovr has no accounts, no analytics and no ads, and it never checks in with a server.
+- **Phone sharing** stays on your local Wi‑Fi, protected by a random secret link.
+- **Copy Share Link** is the only feature that uses the internet, and only when you choose it. It uploads the file to a free temporary host: [Litterbox](https://litterbox.catbox.moe) (ad-free, 1 day, up to 1 GB), or [tmpfiles.org](https://tmpfiles.org) (1 hour, up to 100 MB; its download page shows its own ads) if Litterbox is unavailable. Anyone with the link can download the file until it expires.
+- **Screenshots:** to notice new screenshots, Dropovr watches your screenshot folder (usually the Desktop), so macOS may ask once for permission. You can turn this off in Settings.
+
 ## Supported content
 
 | Dropped content | Saved on the shelf as |
@@ -130,10 +157,12 @@ Sources/
   Shelf.swift       The shelf window, its actions, keyboard and Quick Look
   Components.swift  Card stack, grid tiles, drop zone, buttons, toasts, drag-out
   Files.swift       Reading drops, snippet files, Quick Look thumbnails
+  Features.swift    Image tools, share links, screenshot watcher, pinned shelves
   Phone.swift       Wi‑Fi phone sharing: web server, QR code, mobile page
   Settings.swift    Preferences and the Settings window
 make-icon.swift     Draws the app icon
-build.sh            Builds (and optionally installs) Dropovr.app
+build.sh            Builds (and optionally installs) a universal Dropovr.app
+release.sh          Builds the drag-to-install DMG in dist/
 ```
 
 ## Requirements

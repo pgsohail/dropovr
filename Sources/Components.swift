@@ -364,6 +364,8 @@ final class StackView: NSView {
         guard !dragged, event.clickCount == 1, let shelf, shelf.urls.count > 1 else { return }
         shelf.setExpanded(true)
     }
+
+    override func menu(for event: NSEvent) -> NSMenu? { shelf?.buildMenu() }
 }
 
 // MARK: - Grid
@@ -473,6 +475,11 @@ final class TileView: NSView {
         DragOut.begin(from: self, event: down, urls: urls, shelf: shelf)
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        if !selected { shelf?.click(url, modifiers: []) }
+        return shelf?.buildMenu()
+    }
+
     override func mouseUp(with event: NSEvent) {
         if selectOnMouseUp { shelf?.click(url, modifiers: []) }
         selectOnMouseUp = false
@@ -485,6 +492,7 @@ final class GridDocument: NSView {
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     override func mouseDown(with event: NSEvent) { shelf?.clearSelection() }
+    override func menu(for event: NSEvent) -> NSMenu? { shelf?.buildMenu() }
 }
 
 final class GridView: NSScrollView {
@@ -564,7 +572,7 @@ final class EmptyDropView: NSView {
     private let icon = CALayer()
     private let title = label("Drop anything here", size: 14, weight: .semibold)
     private let subtitle = label("Files, folders, photos, text and links", size: 11.5, color: Style.secondary)
-    private let hint = label("Shake while dragging, or press ⌃⌥S", size: 10.5, color: NSColor(white: 1, alpha: 0.3))
+    private let hint = label("Shake, drag to the notch, or press ⌃⌥S", size: 10.5, color: NSColor(white: 1, alpha: 0.3))
 
     var highlighted = false { didSet { if highlighted != oldValue { refresh() } } }
 
