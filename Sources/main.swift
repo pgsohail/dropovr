@@ -1,4 +1,4 @@
-// Stash — a free floating drop shelf for macOS.
+// Dropoverr — a free floating drop shelf for macOS.
 
 import AppKit
 

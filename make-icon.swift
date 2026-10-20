@@ -1,6 +1,8 @@
-// Draws Stash's 1024px app icon to the PNG path given as the first argument.
+// Draws Dropoverr's 1024px app icon: the logo on a soft white tile.
+// Usage: swift make-icon.swift Resources/logo.svg out.png
 import AppKit
 
+let logo = NSImage(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))!
 let side = 1024
 let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side,
                            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -8,20 +10,25 @@ let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: 
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 
-let tile = NSRect(x: 100, y: 100, width: 824, height: 824)
+// The tile, with a soft drop shadow like built-in macOS icons.
+let tile = NSRect(x: 100, y: 110, width: 824, height: 824)
 let shape = NSBezierPath(roundedRect: tile, xRadius: 185, yRadius: 185)
-NSGradient(starting: NSColor(calibratedRed: 0.33, green: 0.56, blue: 1.0, alpha: 1),
-           ending: NSColor(calibratedRed: 0.56, green: 0.32, blue: 0.96, alpha: 1))!
+NSGraphicsContext.saveGraphicsState()
+let shadow = NSShadow()
+shadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.28)
+shadow.shadowBlurRadius = 28
+shadow.shadowOffset = NSSize(width: 0, height: -12)
+shadow.set()
+NSColor.white.setFill()
+shape.fill()
+NSGraphicsContext.restoreGraphicsState()
+
+NSGradient(starting: NSColor(calibratedRed: 1, green: 1, blue: 1, alpha: 1),
+           ending: NSColor(calibratedRed: 0.88, green: 0.90, blue: 1.0, alpha: 1))!
     .draw(in: shape, angle: -90)
 
-let config = NSImage.SymbolConfiguration(pointSize: 430, weight: .semibold)
-    .applying(.init(paletteColors: [.white]))
-if let symbol = NSImage(systemSymbolName: "tray.and.arrow.down.fill", accessibilityDescription: nil)?
-    .withSymbolConfiguration(config) {
-    let size = symbol.size
-    symbol.draw(in: NSRect(x: (CGFloat(side) - size.width) / 2, y: (CGFloat(side) - size.height) / 2,
-                           width: size.width, height: size.height))
-}
+// The logo.
+logo.draw(in: tile.insetBy(dx: 92, dy: 92))
 
 NSGraphicsContext.restoreGraphicsState()
-try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: CommandLine.arguments[1]))
+try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: CommandLine.arguments[2]))

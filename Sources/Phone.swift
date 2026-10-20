@@ -4,6 +4,7 @@
 import AppKit
 import CoreImage.CIFilterBuiltins
 import Network
+import SystemConfiguration
 import UniformTypeIdentifiers
 
 final class PhoneServer {
@@ -13,29 +14,54 @@ final class PhoneServer {
     weak var shelf: ShelfPanel? {
         didSet { if oldValue !== shelf { oldValue?.phoneSharingEnded() } }
     }
+    /// Finds a shelf for the phone when none is attached (creating one if asked).
+    var shelfProvider: ((_ create: Bool) -> ShelfPanel?)?
     private(set) var link: URL?
+    private(set) var isPersistent = false
     private var listener: NWListener?
     private var token = ""
-    private let queue = DispatchQueue(label: "stash.phone", qos: .userInitiated, attributes: .concurrent)
+    private var waiting: [(URL?) -> Void] = []
+    private let queue = DispatchQueue(label: "dropoverr.phone", qos: .userInitiated, attributes: .concurrent)
+    static let fixedPort: NWEndpoint.Port = 47777
 
+    /// Starts sharing (or hands back the running link). With the always-on setting, the link is
+    /// permanent: same token, same port, and the Mac's name instead of its changing IP address.
     func start(_ done: @escaping (URL?) -> Void) {
         if let link { done(link); return }
-        guard let ip = Self.localIPv4(), let listener = try? NWListener(using: .tcp) else { done(nil); return }
-        let token = (0..<4).map { _ in String(format: "%04x", UInt16.random(in: .min ... .max)) }.joined()
-        self.token = token
+        waiting.append(done)
+        guard listener == nil else { return }   // already starting
+        let persistent = Prefs.phoneAlwaysOn
+        let host = persistent && Prefs.phoneUseHostname ? (Self.localHostName() ?? Self.localIPv4()) : Self.localIPv4()
+        guard let host else { return finish(nil) }
+        isPersistent = persistent
+        token = persistent ? Prefs.phoneToken : (0..<4).map { _ in String(format: "%04x", UInt16.random(in: .min ... .max)) }.joined()
+        launch(host: host, port: persistent ? Self.fixedPort : .any)
+    }
+
+    private func launch(host: String, port: NWEndpoint.Port) {
+        let parameters = NWParameters.tcp
+        parameters.allowLocalEndpointReuse = true
+        guard let listener = try? NWListener(using: parameters, on: port) else { return finish(nil) }
         self.listener = listener
+        let token = token
         listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
         listener.stateUpdateHandler = { [weak self, weak listener] state in
             switch state {
             case .ready:
-                let port = listener?.port?.rawValue ?? 0
+                let actual = listener?.port?.rawValue ?? 0
                 DispatchQueue.main.async {
                     guard let self, self.listener === listener else { return }
-                    self.link = URL(string: "http://\(ip):\(port)/\(token)/")
-                    done(self.link)
+                    self.link = URL(string: "http://\(host):\(actual)/\(token)/")
+                    self.finish(self.link)
                 }
             case .failed:
-                DispatchQueue.main.async { self?.stop(); done(nil) }
+                DispatchQueue.main.async {
+                    guard let self, self.listener === listener else { return }
+                    listener?.cancel()
+                    self.listener = nil
+                    // The fixed port is taken: fall back to any free port.
+                    if port != .any { self.launch(host: host, port: .any) } else { self.finish(nil) }
+                }
             default:
                 break
             }
@@ -43,11 +69,35 @@ final class PhoneServer {
         listener.start(queue: queue)
     }
 
+    private func finish(_ url: URL?) {
+        let callbacks = waiting
+        waiting.removeAll()
+        callbacks.forEach { $0(url) }
+        NotificationCenter.default.post(name: .phoneLinkChanged, object: nil)
+    }
+
     func stop() {
         listener?.cancel()
         listener = nil
         link = nil
+        isPersistent = false
         shelf = nil
+        NotificationCenter.default.post(name: .phoneLinkChanged, object: nil)
+    }
+
+    func restart() {
+        stop()
+        if Prefs.phoneAlwaysOn { start { _ in } }
+    }
+
+    /// A shelf is done with the phone: an always-on link keeps running, a one-off session stops.
+    func release(_ shelf: ShelfPanel) {
+        guard self.shelf === shelf else { return }
+        if isPersistent { self.shelf = nil } else { stop() }
+    }
+
+    private func targetShelf(create: Bool) -> ShelfPanel? {
+        shelf ?? shelfProvider?(create)
     }
 
     // MARK: Requests
@@ -112,6 +162,11 @@ final class PhoneServer {
         case ("GET", "t") where segments.count > 1:
             guard let url = item(segments[1]) else { return respond(connection, "404 Not Found", text: "Gone") }
             sendThumbnail(connection, url)
+        case ("GET", "icon.png"):
+            sendIcon(connection)
+        case ("GET", "manifest.json"):
+            let manifest = ##"{"name":"Dropoverr","short_name":"Dropoverr","start_url":"./","scope":"./","display":"standalone","background_color":"#0c0b14","theme_color":"#0c0b14","icons":[{"src":"icon.png","sizes":"512x512","type":"image/png"}]}"##
+            respond(connection, "200 OK", type: "application/manifest+json", body: Data(manifest.utf8))
         case ("POST", "u"):
             receiveUpload(connection, request: request, start: body)
         default:
@@ -120,7 +175,7 @@ final class PhoneServer {
     }
 
     private func currentItems() -> [URL] {
-        DispatchQueue.main.sync { shelf?.urls ?? [] }
+        DispatchQueue.main.sync { targetShelf(create: false)?.urls ?? [] }
     }
 
     private static func id(_ url: URL) -> String {
@@ -140,6 +195,16 @@ final class PhoneServer {
         }
         let data = (try? JSONSerialization.data(withJSONObject: list)) ?? Data("[]".utf8)
         respond(connection, "200 OK", type: "application/json", body: data)
+    }
+
+    private func sendIcon(_ connection: NWConnection) {
+        let png: Data? = DispatchQueue.main.sync {
+            guard let tiff = NSApp.applicationIconImage.tiffRepresentation,
+                  let rep = NSBitmapImageRep(data: tiff) else { return nil }
+            return rep.representation(using: .png, properties: [:])
+        }
+        guard let png else { return respond(connection, "404 Not Found", text: "") }
+        respond(connection, "200 OK", type: "image/png", body: png, extra: ["Cache-Control": "max-age=86400"])
     }
 
     private func sendThumbnail(_ connection: NWConnection, _ url: URL) {
@@ -223,7 +288,7 @@ final class PhoneServer {
             if remaining <= 0 {
                 try? handle.close()
                 DispatchQueue.main.async { [weak self] in
-                    guard let shelf = self?.shelf else { return }
+                    guard let shelf = self?.targetShelf(create: true) else { return }
                     shelf.add([dest])
                     shelf.shelfView.toast("Received from phone")
                 }
@@ -280,6 +345,11 @@ final class PhoneServer {
         return fallback
     }
 
+    static func localHostName() -> String? {
+        guard let name = SCDynamicStoreCopyLocalHostName(nil) as String?, !name.isEmpty else { return nil }
+        return name + ".local"
+    }
+
     static func qrCode(_ text: String, side: CGFloat) -> NSImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(text.utf8)
@@ -296,7 +366,10 @@ final class PhoneServer {
     static let page = #"""
     <!doctype html><html><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-    <meta name="theme-color" content="#0c0b14"><title>Stash</title>
+    <meta name="theme-color" content="#0c0b14"><title>Dropoverr</title>
+    <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Dropoverr"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="icon.png"><link rel="icon" href="icon.png"><link rel="manifest" href="manifest.json">
     <style>
     :root{color-scheme:dark}
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -328,12 +401,17 @@ final class PhoneServer {
     .send:disabled{opacity:.85}
     .prog{height:5px;border-radius:3px;background:#ffffff1c;overflow:hidden;margin:0 6px 12px;opacity:0;transition:opacity .2s}
     .prog i{display:block;height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,#8fb0ff,#fff);transition:width .15s}
+    .tip{display:flex;gap:10px;align-items:center;padding:12px 14px;margin-bottom:14px;border-radius:16px;font-size:13.5px;line-height:1.4;
+      background:linear-gradient(160deg,#5b8cff26,#9150f526);border:1px solid #8fa8ff40;color:#ffffffd9}
+    .tip[hidden]{display:none}
+    .tip button{margin-left:auto;flex:none;border:0;background:#ffffff1f;color:#fff;width:26px;height:26px;border-radius:50%;font-size:13px}
     @keyframes rise{from{opacity:0;transform:translateY(10px)}}
     </style></head><body>
     <header>
       <div class="logo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10m0 0 4-4m-4 4-4-4"/><path d="M3 14v3a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-3h-5a4 4 0 0 1-8 0H3z"/></svg></div>
-      <div><h1>Stash</h1><div class="sub"><span class="dot" id="dot"></span><span id="sub">Connected to your Mac</span></div></div>
+      <div><h1>Dropoverr</h1><div class="sub"><span class="dot" id="dot"></span><span id="sub">Connected to your Mac</span></div></div>
     </header>
+    <div class="tip" id="tip" hidden><span id="tiptext"></span><button id="tipx" aria-label="Dismiss">✕</button></div>
     <div class="list" id="list"></div>
     <div class="bar"><div class="prog" id="prog"><i id="fill"></i></div>
       <button class="send" id="send">Send to Mac</button><input type="file" id="file" multiple hidden></div>
@@ -348,10 +426,19 @@ final class PhoneServer {
         $('sub').textContent=items.length?items.length+(items.length==1?' item':' items')+' on your Mac':'Connected to your Mac';
         const sig=JSON.stringify(items); if(sig===last) return; last=sig;
         $('list').innerHTML=items.length?items.map((it,i)=>`<a class="item" style="animation-delay:${i*35}ms" href="f/${it.id}" download="${esc(it.name)}"><img src="t/${it.id}" alt=""><div class="meta"><div class="name">${esc(it.name)}</div><div class="size">${esc(it.size)}</div></div><div class="get">${arrow}</div></a>`).join('')
-          :'<div class="empty"><b>Nothing here yet</b>Drop files on the Stash shelf on your Mac and they’ll appear here — or send some from this phone.</div>';
+          :'<div class="empty"><b>Nothing here yet</b>Drop files on the Dropoverr shelf on your Mac and they’ll appear here — or send some from this phone.</div>';
       }catch(e){$('dot').className='dot off';$('sub').textContent='Can’t reach your Mac…'}
     }
     load();setInterval(load,1500);
+    const standalone=navigator.standalone||matchMedia('(display-mode: standalone)').matches;
+    let tipDone=false;try{tipDone=localStorage.getItem('tipDone')==='1'}catch(e){}
+    if(!standalone&&!tipDone){
+      $('tiptext').innerHTML=/android/i.test(navigator.userAgent)
+        ?'📲 Keep Dropoverr one tap away: tap <b>⋮</b> then <b>Add to Home screen</b>.'
+        :'📲 Keep Dropoverr one tap away: tap <b>Share</b> then <b>Add to Home Screen</b>.';
+      $('tip').hidden=false;
+    }
+    $('tipx').onclick=()=>{$('tip').hidden=true;try{localStorage.setItem('tipDone','1')}catch(e){}};
     $('send').onclick=()=>$('file').click();
     $('file').onchange=async()=>{
       const files=[...$('file').files]; if(!files.length) return;
@@ -386,11 +473,12 @@ final class PhoneOverlay: NSView {
     private let title = label("Scan with your phone", size: 14, weight: .semibold)
     private let subtitle = label("Same Wi‑Fi · iPhone or Android · both ways", size: 11, color: Style.secondary)
     private let link = label(size: 10, color: NSColor(white: 1, alpha: 0.35))
+    private var stop: PillButton!
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        let side: CGFloat = 156
+        let side: CGFloat = 128
         card.frame = NSRect(x: (frame.width - side) / 2, y: frame.height - side - 4, width: side, height: side)
         card.wantsLayer = true
         card.layer?.backgroundColor = NSColor.white.cgColor
@@ -400,7 +488,7 @@ final class PhoneOverlay: NSView {
         card.layer?.shadowRadius = 18
         card.layer?.shadowOffset = .zero
         addSubview(card)
-        qr.frame = card.bounds.insetBy(dx: 12, dy: 12)
+        qr.frame = card.bounds.insetBy(dx: 9, dy: 9)
         qr.imageScaling = .scaleProportionallyUpOrDown
         card.addSubview(qr)
         spinner.style = .spinning
@@ -417,7 +505,7 @@ final class PhoneOverlay: NSView {
         addSubview(link)
 
         let hide = PillButton("Done", target: self, action: #selector(hideTapped))
-        let stop = PillButton("Stop Sharing", target: self, action: #selector(stopTapped))
+        stop = PillButton("Stop Sharing", target: self, action: #selector(stopTapped))
         hide.frame = NSRect(x: frame.width / 2 - 112, y: 4, width: 104, height: 28)
         stop.frame = NSRect(x: frame.width / 2 + 8, y: 4, width: 104, height: 28)
         addSubview(hide)
@@ -441,7 +529,9 @@ final class PhoneOverlay: NSView {
         spinner.isHidden = true
         qr.image = PhoneServer.qrCode(url.absoluteString, side: qr.bounds.width)
         title.stringValue = "Scan with your phone"
-        subtitle.stringValue = "Same Wi‑Fi · iPhone or Android · both ways"
+        subtitle.stringValue = Prefs.phoneAlwaysOn ? "Always on · add it to your Home Screen"
+            : "Same Wi‑Fi · iPhone or Android · both ways"
+        stop.setTitle(Prefs.phoneAlwaysOn ? "Phone Settings" : "Stop Sharing")
         link.stringValue = url.absoluteString
         let pop = CASpringAnimation(keyPath: "transform.scale")
         pop.fromValue = 0.85

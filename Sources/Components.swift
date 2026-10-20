@@ -55,14 +55,14 @@ final class HeaderButton: NSButton {
     var isActive = false { didSet { refresh() } }
 
     init(symbol name: String, tip: String, target: AnyObject?, action: Selector) {
-        super.init(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
+        super.init(frame: NSRect(x: 0, y: 0, width: 26, height: 26))
         isBordered = false
         imagePosition = .imageOnly
         toolTip = tip
         self.target = target
         self.action = action
         wantsLayer = true
-        layer?.cornerRadius = 9
+        layer?.cornerRadius = 8
         setSymbol(name)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                        owner: self))
@@ -72,7 +72,7 @@ final class HeaderButton: NSButton {
     required init?(coder: NSCoder) { fatalError() }
 
     func setSymbol(_ name: String) {
-        image = symbol(name, size: 13, weight: .semibold)
+        image = symbol(name, size: 12, weight: .semibold)
         image?.isTemplate = true
     }
 
@@ -101,10 +101,7 @@ final class PillButton: NSButton {
         self.prominent = prominent
         super.init(frame: .zero)
         isBordered = false
-        attributedTitle = NSAttributedString(string: title, attributes: [
-            .font: NSFont.systemFont(ofSize: 12.5, weight: .semibold),
-            .foregroundColor: NSColor.white,
-        ])
+        setTitle(title)
         self.target = target
         self.action = action
         wantsLayer = true
@@ -115,6 +112,13 @@ final class PillButton: NSButton {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    func setTitle(_ title: String) {
+        attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.white,
+        ])
+    }
 
     override var mouseDownCanMoveWindow: Bool { false }
     override func mouseEntered(with event: NSEvent) { hovering = true }
@@ -163,7 +167,8 @@ final class DragOut: NSObject, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        if operation.contains(.move) || operation.contains(.delete) {
+        let moved = operation.contains(.move) || operation.contains(.delete)
+        if moved || (Prefs.removeAfterDrag == 1 && !operation.isEmpty) {
             shelf?.remove(urls)
         } else if !operation.isEmpty {
             NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
@@ -193,7 +198,7 @@ final class StackView: NSView {
     private var hovering = false { didSet { if hovering != oldValue { layoutCards(animated: true) } } }
     private var down: NSEvent?
     private var dragged = false
-    private let box: CGFloat = 132
+    private let box: CGFloat = 112
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -226,7 +231,7 @@ final class StackView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var mouseDownCanMoveWindow: Bool { false }
-    private var center: CGPoint { CGPoint(x: bounds.midX, y: bounds.midY + 22) }
+    private var center: CGPoint { CGPoint(x: bounds.midX, y: bounds.midY + 20) }
 
     func update(animated: Bool) {
         guard let shelf, let root = layer else { return }
@@ -364,7 +369,7 @@ final class StackView: NSView {
 // MARK: - Grid
 
 final class TileView: NSView {
-    static let size = NSSize(width: 88, height: 106)
+    static let size = NSSize(width: 74, height: 94)
     let url: URL
     weak var shelf: ShelfPanel?
 
@@ -392,13 +397,13 @@ final class TileView: NSView {
         layer?.addSublayer(imageLayer)
 
         name.stringValue = url.lastPathComponent
-        name.font = .systemFont(ofSize: 11, weight: .medium)
+        name.font = .systemFont(ofSize: 10.5, weight: .medium)
         name.textColor = Style.text
         name.alignment = .center
         name.maximumNumberOfLines = 2
         name.lineBreakMode = .byTruncatingMiddle
         name.cell?.truncatesLastVisibleLine = true
-        name.frame = NSRect(x: 4, y: 4, width: Self.size.width - 8, height: 30)
+        name.frame = NSRect(x: 3, y: 3, width: Self.size.width - 6, height: 28)
         addSubview(name)
         toolTip = url.lastPathComponent
 
@@ -413,7 +418,7 @@ final class TileView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 
     private func apply(_ thumb: Thumb) {
-        let box = CGRect(x: 14, y: 38, width: 60, height: 60)
+        let box = CGRect(x: 12, y: 34, width: 50, height: 50)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         imageLayer.frame = thumb.isPreview ? aspectFit(thumb.image.size, in: box) : box
@@ -573,7 +578,7 @@ final class EmptyDropView: NSView {
         border.lineDashPattern = [7, 6]
         layer?.addSublayer(border)
 
-        if let image = symbol("tray.and.arrow.down.fill", size: 36, weight: .medium, color: NSColor(white: 1, alpha: 0.75)) {
+        if let image = symbol("tray.and.arrow.down.fill", size: 30, weight: .medium, color: NSColor(white: 1, alpha: 0.75)) {
             icon.bounds = CGRect(origin: .zero, size: image.size)
             icon.setImage(image)
         }

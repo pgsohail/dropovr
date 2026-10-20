@@ -4,7 +4,7 @@ import AppKit
 import Quartz
 
 final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
-    static let size = NSSize(width: 300, height: 340)
+    static let size = NSSize(width: 260, height: 300)
 
     private(set) var urls: [URL] = []
     private(set) var selection: Set<URL> = []
@@ -73,7 +73,7 @@ final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegat
     override func close() {
         guard !closing else { return }
         closing = true
-        if PhoneServer.shared.shelf === self { PhoneServer.shared.stop() }
+        PhoneServer.shared.release(self)
         if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible { QLPreviewPanel.shared().orderOut(nil) }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.12
@@ -140,6 +140,8 @@ final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegat
     // MARK: Actions
 
     @objc func closeShelf() { close() }
+
+    @objc func openSettings() { SettingsWindow.show() }
 
     @objc func toggleExpanded() { setExpanded(!expanded) }
 
@@ -275,6 +277,8 @@ final class ShelfPanel: NSPanel, QLPreviewPanelDataSource, QLPreviewPanelDelegat
         if !selection.isEmpty { add("Remove Selected", "minus.circle", #selector(removeSelected)) }
         add("Clear Shelf", "trash", #selector(clearAll), enabled: has)
         add("Close Shelf", "xmark", #selector(closeShelf), key: "w")
+        menu.addItem(.separator())
+        add("Settings…", "gearshape", #selector(openSettings), key: ",")
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 6), in: sender)
     }
 
@@ -334,6 +338,7 @@ final class ShelfView: NSVisualEffectView {
     private let grid: GridView
     private var phone: PhoneOverlay?
     private let glow = PassthroughView()
+    private let tint = PassthroughView()
     private let toastView = ToastView()
     private(set) var phoneVisible = false
 
@@ -354,10 +359,10 @@ final class ShelfView: NSVisualEffectView {
 
         // A soft light sheen across the top, and a hairline edge.
         // A deep tint over the blur so the shelf stays dark and legible on bright wallpapers.
-        let tint = PassthroughView(frame: bounds)
+        tint.frame = bounds
         tint.wantsLayer = true
-        tint.layer?.backgroundColor = NSColor(calibratedRed: 0.045, green: 0.045, blue: 0.06, alpha: 0.86).cgColor
         addSubview(tint)
+        applyDarkness()
 
         let sheen = PassthroughView(frame: bounds)
         sheen.wantsLayer = true
@@ -370,10 +375,10 @@ final class ShelfView: NSVisualEffectView {
         addSubview(sheen)
 
         let close = HeaderButton(symbol: "xmark", tip: "Close (Esc)", target: shelf, action: #selector(ShelfPanel.closeShelf))
-        close.frame.origin = NSPoint(x: 10, y: frame.height - 38)
+        close.frame.origin = NSPoint(x: 10, y: frame.height - 37)
         addSubview(close)
 
-        titleLabel.frame = NSRect(x: 42, y: frame.height - 32, width: 120, height: 18)
+        titleLabel.frame = NSRect(x: 40, y: frame.height - 32, width: 96, height: 18)
         titleLabel.lineBreakMode = .byTruncatingTail
         addSubview(titleLabel)
 
@@ -382,7 +387,7 @@ final class ShelfView: NSVisualEffectView {
         phoneButton = HeaderButton(symbol: "iphone", tip: "Send to Phone", target: shelf, action: #selector(ShelfPanel.togglePhone))
         modeButton = HeaderButton(symbol: "square.grid.2x2", tip: "Browse", target: shelf, action: #selector(ShelfPanel.toggleExpanded))
         for (index, button) in [more, shareButton!, phoneButton!, modeButton!].enumerated() {
-            button.frame.origin = NSPoint(x: frame.width - 38 - CGFloat(index) * 30, y: frame.height - 38)
+            button.frame.origin = NSPoint(x: frame.width - 36 - CGFloat(index) * 28, y: frame.height - 37)
             addSubview(button)
         }
 
@@ -438,7 +443,7 @@ final class ShelfView: NSVisualEffectView {
         guard let shelf else { return }
         let urls = shelf.urls
 
-        let heading = NSMutableAttributedString(string: urls.isEmpty ? "Stash" : urls.count == 1 ? "1 item" : "\(urls.count) items",
+        let heading = NSMutableAttributedString(string: urls.isEmpty ? "Dropoverr" : urls.count == 1 ? "1 item" : "\(urls.count) items",
                                                 attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold),
                                                              .foregroundColor: Style.text])
         let bytes = urls.compactMap(fileSize).reduce(0, +)
@@ -464,6 +469,10 @@ final class ShelfView: NSVisualEffectView {
 
     func selectionChanged() { grid.updateSelection() }
 
+    func applyDarkness() {
+        tint.layer?.backgroundColor = NSColor(calibratedRed: 0.045, green: 0.045, blue: 0.06, alpha: Prefs.darkness).cgColor
+    }
+
     func toast(_ message: String) { toastView.show(message, in: self) }
 
     // MARK: Phone
@@ -475,7 +484,13 @@ final class ShelfView: NSVisualEffectView {
             let overlay = phone ?? {
                 let view = PhoneOverlay(frame: body.bounds)
                 view.onHide = { [weak self] in self?.setPhoneVisible(false) }
-                view.onStop = { PhoneServer.shared.stop() }
+                view.onStop = { [weak self] in
+                    if Prefs.phoneAlwaysOn {
+                        SettingsWindow.show(tab: .phone)
+                    } else if let shelf = self?.shelf {
+                        PhoneServer.shared.release(shelf)
+                    }
+                }
                 body.addSubview(view)
                 phone = view
                 return view
@@ -488,7 +503,7 @@ final class ShelfView: NSVisualEffectView {
                 if let link {
                     overlay.show(link)
                     self?.phoneButton.isActive = true
-                    print("Stash phone link:", link.absoluteString)
+                    print("Dropoverr phone link:", link.absoluteString)
                     fflush(stdout)
                 }
                 else { overlay.showError("Connect your Mac to Wi‑Fi, then try again.") }
